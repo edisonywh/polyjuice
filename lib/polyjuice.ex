@@ -1,85 +1,72 @@
 defmodule Polyjuice do
   use Ecto.ParameterizedType
 
-  # TODO: I need to take in both atom and string type
-  # @discriminator "type"
-  @discriminator :type
-
   @impl Ecto.ParameterizedType
-  def init(opts), do: {:ok, Enum.into(opts, %{})}
+  def init(opts), do: Enum.into(opts, %{})
 
   @impl Ecto.ParameterizedType
   def type(_params), do: :map
 
-  @impl Ecto.ParameterizedType
-  def dump(%module{} = struct, _dumper, params) do
-    case Enum.find(params.schemas, fn {_k, v} -> v == module end) do
-      {type_atom, _module} ->
-        map = Map.from_struct(struct)
-        {:ok, Map.put(map, @discriminator, to_string(type_atom))}
-
-      nil ->
-        {:error, "Struct module #{inspect(module)} is not allowed in Polyjuice."}
-    end
-  end
-
-  def dump(nil, _dumper, _params), do: {:ok, nil}
-  def dump(_other, _dumper, _params), do: :error
-
-  @impl Ecto.ParameterizedType
-  def load(data, _loader, params) when is_map(data) do
-    with type_string <- Map.get(data, @discriminator),
-         type_atom <- String.to_existing_atom(type_string),
-         module when is_atom(module) <- Keyword.get(params.schemas, type_atom) do
-      data_without_type = Map.delete(data, @discriminator)
-      {:ok, struct!(module, data_without_type)}
+  defp put_type(data, type) do
+    if Enum.all?(Map.keys(data), &is_binary/1) do
+      Map.put(data, to_string(type), type)
     else
-      _ ->
-        {:error,
-         "Polyjuice could not load data. Missing or unconfigured discriminator key #{@discriminator}"}
+      Map.put(data, :type, type)
     end
   end
 
-  def load(nil, _loader, _params), do: {:ok, nil}
-  def load(_other, _loader, _params), do: :error
+  defp do_cast({type, module}, data) do
+    changeset = module.changeset(struct(module), put_type(data, type))
 
-  defp get_type(data) do
-    with true <- Map.has_key?(data, @discriminator) do
-      Map.get(data, @discriminator)
-      |> case do
-        nil -> {:error, "invalid polyjuice type"}
-        val -> {:ok, to_string(val)}
-      end
+    if changeset.valid? do
+      {:ok, Ecto.Changeset.apply_changes(changeset)}
     else
-      _ -> {:error, "polyjuice requires :#{@discriminator}"}
-    end
-  end
-
-  defp get_module({:ok, params}, type) do
-    get_in(params, [:values, String.to_atom(type)])
-    |> case do
-      nil -> {:error, "invalid polyjuice type"}
-      mod -> {:ok, mod}
+      {:error, changeset.errors}
     end
   end
 
   @impl Ecto.ParameterizedType
-  def cast(data, params) when is_map(data) do
-    with {:ok, type} <- get_type(data),
-         {:ok, module} <- get_module(params, type) do
-      {:ok, struct!(module, data)}
-    end
+  def cast(data, values) when is_struct(data) do
+    mapping = get_mapping(values, data.__struct__)
+    do_cast(mapping, Map.from_struct(data))
   end
 
-  def cast(%module{} = struct, params) do
-    allowed_modules = Keyword.values(params.schemas)
-
-    case Enum.member?(allowed_modules, module) do
-      true -> {:ok, struct}
-      false -> {:error, "Invalid polyjuice struct module."}
-    end
+  @impl Ecto.ParameterizedType
+  def cast(data, values) do
+    mapping = get_mapping(values, data)
+    do_cast(mapping, data)
   end
 
-  def cast(nil, _params), do: {:ok, nil}
-  def cast(_other, _params), do: :error
+  @impl Ecto.ParameterizedType
+  defdelegate dump(value, fun, embed), to: Ecto.Embedded
+
+  @impl Ecto.ParameterizedType
+  defdelegate load(value, fun, opts), to: Ecto.Embedded
+
+  defp get_mapping(values, %{type: type}) when is_binary(type) do
+    {String.to_existing_atom(type), get_in(values, [:schemas, type])}
+  end
+
+  defp get_mapping(values, %{type: type}) when is_atom(type) do
+    {type, get_in(values, [:schemas, type])}
+  end
+
+  defp get_mapping(values, %{"type" => type}) when is_binary(type) do
+    type = String.to_existing_atom(type)
+
+    {type, get_in(values, [:schemas, type])}
+  end
+
+  defp get_mapping(values, %{"type" => type}) when is_atom(type) do
+    {type, get_in(values, [:schemas, type])}
+  end
+
+  defp get_mapping(values, mod) when is_atom(mod) do
+    type =
+      Enum.find_value(values.schemas, fn {k, v} ->
+        if v == mod, do: k
+      end)
+
+    {type, mod}
+  end
 end
