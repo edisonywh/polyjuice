@@ -1,4 +1,4 @@
-defmodule PolyjuiceTest.Repo.Migrations.CreateActivitiesTable do
+defmodule Polyjuice.Repo.Migrations.CreateActivitiesTable do
   use Ecto.Migration
 
   def change do

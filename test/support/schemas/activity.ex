@@ -1,8 +1,8 @@
-defmodule PolyjuiceTest.Schemas.Activity do
+defmodule Polyjuice.Schemas.Activity do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias PolyjuiceTest.Schemas.Activity.{Activated, Cancelled}
+  alias Polyjuice.Schemas.Activity.{Activated, Cancelled}
 
   schema "activities" do
     field(:title, :string)
@@ -20,7 +20,8 @@ defmodule PolyjuiceTest.Schemas.Activity do
 
   def changeset(activity, attrs) do
     activity
-    |> cast(attrs, [:title, :user_id, :event])
+    |> cast(attrs, [:title, :user_id])
+    |> Polyjuice.cast_embed(:event)
     |> validate_required([:title, :user_id, :event])
     |> validate_number(:user_id, greater_than: 0)
   end

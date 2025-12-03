@@ -1,4 +1,4 @@
-defmodule PolyjuiceTest.Schemas.Activity.Cancelled do
+defmodule Polyjuice.Schemas.Activity.Cancelled do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -8,12 +8,11 @@ defmodule PolyjuiceTest.Schemas.Activity.Cancelled do
     field(:user_id, :integer)
     field(:cancelled_at, :utc_datetime)
     field(:reason, :string)
-    field(:refund_amount, :decimal)
   end
 
   def changeset(cancelled, attrs) do
     cancelled
-    |> cast(attrs, [:type, :user_id, :cancelled_at, :reason, :refund_amount])
+    |> cast(attrs, [:type, :user_id, :cancelled_at, :reason])
     |> validate_required([:user_id, :cancelled_at, :reason])
     |> validate_number(:user_id, greater_than: 0)
     |> validate_inclusion(:reason, [

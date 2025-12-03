@@ -1,4 +1,4 @@
-defmodule PolyjuiceTest.Schemas.Activity.Activated do
+defmodule Polyjuice.Schemas.Activity.Activated do
   use Ecto.Schema
   import Ecto.Changeset
 

@@ -1,16 +1,16 @@
-Application.put_env(:polyjuice, PolyjuiceTest.Repo,
-  database: ":memory:",
-  pool_size: 1,
-  pool: Ecto.Adapters.SQL.Sandbox
-)
+# Start the configuration system
+Application.load(:polyjuice)
 
-Application.put_env(:polyjuice, :ecto_repos, [PolyjuiceTest.Repo])
-
+# Ensure all required applications are started
 {:ok, _} = Application.ensure_all_started(:ecto_sql)
-{:ok, _} = PolyjuiceTest.Repo.start_link()
 
-Ecto.Adapters.SQL.Sandbox.mode(PolyjuiceTest.Repo, :manual)
+# Start the repo
+{:ok, _} = Polyjuice.Repo.start_link()
 
+# Configure sandbox mode for tests
+Ecto.Adapters.SQL.Sandbox.mode(Polyjuice.Repo, :manual)
+
+# Start ExUnit
 ExUnit.start()
 
 ExUnit.configure(
@@ -18,5 +18,3 @@ ExUnit.configure(
   formatters: [ExUnit.CLIFormatter],
   colors: [enabled: true]
 )
-
-

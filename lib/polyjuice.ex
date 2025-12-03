@@ -25,19 +25,31 @@ defmodule Polyjuice do
           field :event, Polyjuice, schemas: %{
             activated: ActivatedEvent,
             cancelled: CancelledEvent
-          }
+          } # => define mappings here
         end
 
         def changeset(activity, attrs) do
           activity
-          |> cast(attrs, [:title, :event])
+          |> cast(attrs, [:title])
+          |> Polyjuice.cast_embed(:event) # => here
           |> validate_required([:title, :event])
         end
       end
 
   ## Usage
+      %Activity{
+        title: "User Action",
+        event: %ActivatedEvent{
+          type: "activated",
+          user_id: 123,
+          activated_at: DateTime.utc_now()
+        }
+      }
+      |> Repo.insert()
 
-      # With map data (e.g., from JSON/forms)
+  ## Caveat
+  Polyjuice does not currently support map/json-based input, only structs are allowed, thus the following won't work:
+
       %Activity{}
       |> Activity.changeset(%{
         title: "User Action",
@@ -49,16 +61,6 @@ defmodule Polyjuice do
       })
       |> Repo.insert()
 
-      # With struct data
-      %Activity{
-        title: "User Action",
-        event: %ActivatedEvent{
-          type: "activated",
-          user_id: 123,
-          activated_at: DateTime.utc_now()
-        }
-      }
-      |> Repo.insert()
   """
 
   use Ecto.ParameterizedType
@@ -68,19 +70,7 @@ defmodule Polyjuice do
 
   @impl true
   def init(opts) do
-    schemas_option = opts[:schemas] || %{}
-
-    schemas =
-      case schemas_option do
-        schemas when is_map(schemas) ->
-          schemas
-
-        schemas when is_list(schemas) ->
-          Enum.into(schemas, %{})
-
-        _ ->
-          %{}
-      end
+    schemas = opts[:schemas] |> Enum.into(%{})
 
     unless is_map(schemas) and map_size(schemas) > 0 do
       raise ArgumentError, """
@@ -95,7 +85,6 @@ defmodule Polyjuice do
       """
     end
 
-    # Validate all values are modules
     Enum.each(schemas, fn {key, module} ->
       unless is_atom(key) and is_atom(module) do
         raise ArgumentError,
@@ -119,51 +108,54 @@ defmodule Polyjuice do
   @impl true
   def cast(nil, _params), do: {:ok, nil}
 
-  def cast(data, params) when is_struct(data) do
-    # If it's already a struct from one of our schemas, accept it
-    module = data.__struct__
+  # (todo) Ecto.Changeset.cast/3 doesn't work
+  # def cast(data, params) when is_struct(data) do
+  #   module = data.__struct__
 
-    case params.module_to_type do
-      %{^module => _type} ->
-        {:ok, data}
+  #   case params.module_to_type do
+  #     %{^module => _type} ->
+  #       {:ok, data}
 
-      _ ->
-        {:error, [type: {"unknown struct type", [validation: :polyjuice_cast]}]}
-    end
-  end
+  #     _ ->
+  #       {:error, [type: {"unknown struct type", [validation: :polyjuice_cast]}]}
+  #   end
+  # end
 
-  def cast(data, params) when is_map(data) do
-    case get_schema_module(data, params) do
-      nil ->
-        {:error, [type: {"no type field found", [validation: :polyjuice_cast]}]}
+  # def cast(data, params) when is_map(data) do
+  #   case get_schema_module(data, params) do
+  #     nil ->
+  #       {:error, [type: {"no type field found", [validation: :polyjuice_cast]}]}
 
-      {:unknown, type_value} ->
-        {:error, [type: {"unknown type #{inspect(type_value)}", [validation: :polyjuice_cast]}]}
+  #     {:unknown, type_value} ->
+  #       {:error, [type: {"unknown type #{inspect(type_value)}", [validation: :polyjuice_cast]}]}
 
-      {type, module} ->
-        # Ensure type field is present and correctly formatted
-        data_with_type = ensure_type_field(data, type)
+  #     {type, module} ->
+  #       data_with_type = ensure_type_field(data, type)
+  #       changeset = module.changeset(struct(module), data_with_type)
 
-        # Create changeset and validate
-        changeset = module.changeset(struct(module), data_with_type)
+  #       if changeset.valid? do
+  #         {:ok, Ecto.Changeset.apply_changes(changeset)}
+  #       else
+  #         {:error, changeset.errors}
+  #       end
+  #   end
+  # end
 
-        if changeset.valid? do
-          {:ok, Ecto.Changeset.apply_changes(changeset)}
-        else
-          {:error, changeset.errors}
-        end
-    end
-  end
-
-  def cast(_data, _params), do: {:error, [type: {"invalid data", [validation: :polyjuice_cast]}]}
+  def cast(_data, _params),
+    do:
+      {:error,
+       [
+         type:
+           {"invalid data, use Polyjuice.cast_embed/2",
+            [
+              validation: :polyjuice_cast
+            ]}
+       ]}
 
   @impl true
-  def load(nil, _loader, _params), do: {:ok, nil}
-
   def load(data, _loader, params) when is_map(data) do
     case get_schema_module(data, params) do
       {_type, module} ->
-        # Convert string keys to atom keys for struct creation
         atom_data =
           for {key, val} <- data, into: %{} do
             atom_key = if is_binary(key), do: String.to_existing_atom(key), else: key
@@ -173,13 +165,10 @@ defmodule Polyjuice do
         {:ok, struct(module, atom_data)}
 
       _ ->
-        # If we can't determine the type, it's a data integrity issue
-        :error
+        {:ok, data}
     end
   rescue
-    ArgumentError ->
-      # String.to_existing_atom failed - unknown type in database
-      :error
+    _ -> {:ok, data}
   end
 
   def load(data, _loader, _params), do: {:ok, data}
@@ -191,21 +180,11 @@ defmodule Polyjuice do
     {:ok, Map.from_struct(data)}
   end
 
-  # def dump(data, _dumper, _params) when is_map(data) do
-  #   # technically if i recast it back to polyjuice struct
-  #   {:ok, data}
-  # end
-  #
+  def dump(data, _dumper, _params) when is_map(data) do
+    {:ok, data}
+  end
 
   def dump(_data, _dumper, _params), do: :error
-
-  @impl true
-  def equal?(a, b, _params), do: a == b
-
-  @impl true
-  def embed_as(_format, _params), do: :self
-
-  # Private helper functions
 
   defp get_schema_module(data, params) do
     type_value = data["type"] || data[:type]
@@ -237,15 +216,106 @@ defmodule Polyjuice do
     end
   end
 
-  defp ensure_type_field(data, type) do
-    cond do
-      # Data has all string keys - use string type key
-      Enum.all?(Map.keys(data), &is_binary/1) ->
-        Map.put(data, "type", to_string(type))
+  defp ensure_type_field(data, type), do: Map.put(data, "type", to_string(type))
 
-      # Data has mixed or all atom keys - use atom type key
-      true ->
-        Map.put(data, :type, type)
+  @doc """
+  Validates and casts a Polyjuice field in a changeset.
+
+  This function should be called in your schema's changeset function to properly
+  validate embedded Polyjuice data. It will cast the data to the appropriate
+  embedded schema and run its changeset validation.
+
+  The schemas configuration is automatically extracted from the field definition,
+  so you don't need to pass it manually.
+
+  ## Usage
+
+      def changeset(activity, attrs) do
+        activity
+        |> cast(attrs, [:title, :user_id])
+        |> Polyjuice.cast_embed(:event)
+        |> validate_required([:title, :user_id, :event])
+      end
+
+  ## Parameters
+
+    * `changeset` - The Ecto changeset
+    * `field` - The field name (atom) that contains Polyjuice data
+
+  ## Returns
+
+  The updated changeset with validation errors if any are found.
+  """
+  def cast_embed(changeset, field) do
+    import Ecto.Changeset
+
+    # Extract schemas from field definition
+    {:parameterized, {Polyjuice, params}} = changeset.data.__struct__.__schema__(:type, field)
+    data = changeset.params[to_string(field)] || changeset.params[field]
+
+    case data do
+      nil ->
+        changeset
+
+      data when is_struct(data) ->
+        validate_struct(changeset, field, data, params)
+
+      data when is_map(data) ->
+        validate_map(changeset, field, data, params)
+
+      _ ->
+        add_error(changeset, field, "invalid data format")
     end
+  end
+
+  defp validate_struct(changeset, field, data, params) do
+    import Ecto.Changeset
+
+    module = data.__struct__
+    allowed_modules = Map.values(params.schemas)
+
+    if module in allowed_modules do
+      data_as_map = Map.from_struct(data)
+      embedded_changeset = module.changeset(struct(module), data_as_map)
+
+      if embedded_changeset.valid? do
+        put_change(changeset, field, data)
+      else
+        add_embedded_errors(changeset, field, embedded_changeset.errors)
+      end
+    else
+      add_error(changeset, field, "invalid polyjuice schema type #{inspect(module)}")
+    end
+  end
+
+  defp validate_map(changeset, field, data, params) do
+    import Ecto.Changeset
+
+    case get_schema_module(data, params) do
+      nil ->
+        add_error(changeset, field, "no type field found")
+
+      {:unknown, type_value} ->
+        add_error(changeset, field, "unknown type #{inspect(type_value)}")
+
+      {type, module} ->
+        data_with_type = ensure_type_field(data, type)
+        embedded_changeset = module.changeset(struct(module), data_with_type)
+
+        if embedded_changeset.valid? do
+          validated_struct = Ecto.Changeset.apply_changes(embedded_changeset)
+          put_change(changeset, field, validated_struct)
+        else
+          add_embedded_errors(changeset, field, embedded_changeset.errors)
+        end
+    end
+  end
+
+  defp add_embedded_errors(changeset, field, errors) do
+    import Ecto.Changeset
+
+    Enum.reduce(errors, changeset, fn {key, {message, _opts}}, acc ->
+      add_error(acc, field, "#{key} #{message}")
+    end)
   end
 end

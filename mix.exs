@@ -8,7 +8,8 @@ defmodule Polyjuice.MixProject do
       elixir: "~> 1.8",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      config_path: "config/config.exs"
     ]
   end
 
@@ -26,8 +27,6 @@ defmodule Polyjuice.MixProject do
       {:ecto_sql, "~> 3.0", only: :test},
       {:ecto_sqlite3, "~> 0.9", only: :test},
       {:jason, "~> 1.4", only: :test}
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
   end
 
