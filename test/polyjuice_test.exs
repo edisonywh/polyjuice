@@ -29,6 +29,7 @@ defmodule Polyjuice.Test do
       assert loaded_activity.event.activation_code == "ACT-12345"
       assert loaded_activity.event.type == "activated"
     end
+
     test "stores and retrieves activated event correctly" do
       activated_struct = %Activated{
         type: "activated",

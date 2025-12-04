@@ -3,64 +3,9 @@ defmodule Polyjuice do
   A custom type that maps polymorphic data to different Ecto schemas based on a type field.
 
   `Polyjuice` allows you to store different types of data in a single field, where each
-  type is validated and cast to its own embedded schema. It can be used in your schemas
-  as follows:
+  type is validated and cast to its own embedded schema.
 
-      field :event, Polyjuice, schemas: %{
-        activated: MyApp.ActivatedEvent,
-        cancelled: MyApp.CancelledEvent
-      }
-
-  The type is determined by a `type` field in the data, which can be either a string
-  or atom key. The data is then cast to the appropriate schema based on this mapping.
-
-  ## Example
-
-      defmodule Activity do
-        use Ecto.Schema
-        import Ecto.Changeset
-
-        schema "activities" do
-          field :title, :string
-          field :event, Polyjuice, schemas: %{
-            activated: ActivatedEvent,
-            cancelled: CancelledEvent
-          } # => define mappings here
-        end
-
-        def changeset(activity, attrs) do
-          activity
-          |> cast(attrs, [:title])
-          |> Polyjuice.cast_embed(:event) # => here
-          |> validate_required([:title, :event])
-        end
-      end
-
-  ## Usage
-      %Activity{
-        title: "User Action",
-        event: %ActivatedEvent{
-          type: "activated",
-          user_id: 123,
-          activated_at: DateTime.utc_now()
-        }
-      }
-      |> Repo.insert()
-
-  ## Caveat
-  Polyjuice does not currently support map/json-based input, only structs are allowed, thus the following won't work:
-
-      %Activity{}
-      |> Activity.changeset(%{
-        title: "User Action",
-        event: %{
-          "type" => "activated",
-          "user_id" => 123,
-          "activated_at" => DateTime.utc_now()
-        }
-      })
-      |> Repo.insert()
-
+  See README.md for more.
   """
 
   use Ecto.ParameterizedType
