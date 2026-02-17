@@ -76,6 +76,8 @@ end
 ```
 
 ## Usage
+
+### With Structs
 ```elixir
 %Activity{
   title: "User Action",
@@ -88,25 +90,78 @@ end
 |> Repo.insert()
 ```
 
-## Caveat(s)
-1) Map-based input & `Ecto.Changeset.cast/3`
+### With Maps
 
-Polyjuice does not currently support map/json-based input, only structs are allowed, thus the following won't work:
+Polyjuice supports both struct and map-based input. Maps must include a `type` field (string or atom key) to identify which schema to use:
 
 ```elixir
-%Activity{}
-|> Activity.changeset(%{
+# With string keys
+%Activity{
   title: "User Action",
   event: %{
     "type" => "activated",
     "user_id" => 123,
-    "activated_at" => DateTime.utc_now()
+    "activated_at" => DateTime.utc_now(),
+    "activation_code" => "ACT-123"
+  }
+}
+|> Repo.insert()
+
+# With atom keys
+%Activity{
+  title: "User Action",
+  event: %{
+    type: :activated,
+    user_id: 123,
+    activated_at: DateTime.utc_now(),
+    activation_code: "ACT-123"
+  }
+}
+|> Repo.insert()
+```
+
+### Validation with Changesets
+
+For validation, use `Polyjuice.cast_embed/2` in your changeset:
+
+```elixir
+Activity.changeset(%Activity{}, %{
+  "title" => "User Action",
+  "user_id" => 123,
+  "event" => %{
+    "type" => "activated",
+    "user_id" => 123,
+    "activated_at" => DateTime.utc_now(),
+    "activation_code" => "ACT-123"
   }
 })
 |> Repo.insert()
 ```
 
-2) Schema evolution
+**Important**: Direct insertion (without a changeset) bypasses validation. Maps and structs will be stored as-is. To ensure data validity, always use changesets with `Polyjuice.cast_embed/2`.
+
+## Caveats
+
+### 1. Map-based Input and Validation
+
+**Direct insertion bypasses validation:**
+```elixir
+# ❌ No validation - invalid data will be stored
+%Activity{
+  event: %{"type" => "activated", "user_id" => "not_an_integer"}
+}
+|> Repo.insert()
+
+# ✅ Validation runs - will return error
+Activity.changeset(%Activity{}, %{
+  "event" => %{"type" => "activated", "user_id" => "not_an_integer"}
+})
+|> Repo.insert()
+```
+
+Maps (and structs) passed directly to `Repo.insert/1` skip changeset validation. Always use `Activity.changeset/2` with `Polyjuice.cast_embed/2` when you need data validation.
+
+### 2. Schema Evolution
 
 Be very careful about reading & writing back into database, currently this can be a lossy conversion.
 

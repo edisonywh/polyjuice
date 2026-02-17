@@ -53,45 +53,44 @@ defmodule Polyjuice do
   @impl true
   def cast(nil, _params), do: {:ok, nil}
 
-  # (todo) Ecto.Changeset.cast/3 doesn't work
-  # def cast(data, params) when is_struct(data) do
-  #   module = data.__struct__
+  def cast(data, params) when is_struct(data) do
+    module = data.__struct__
 
-  #   case params.module_to_type do
-  #     %{^module => _type} ->
-  #       {:ok, data}
+    case params.module_to_type do
+      %{^module => _type} ->
+        {:ok, data}
 
-  #     _ ->
-  #       {:error, [type: {"unknown struct type", [validation: :polyjuice_cast]}]}
-  #   end
-  # end
+      _ ->
+        {:error, [type: {"unknown struct type", [validation: :polyjuice_cast]}]}
+    end
+  end
 
-  # def cast(data, params) when is_map(data) do
-  #   case get_schema_module(data, params) do
-  #     nil ->
-  #       {:error, [type: {"no type field found", [validation: :polyjuice_cast]}]}
+  def cast(data, params) when is_map(data) do
+    case get_schema_module(data, params) do
+      nil ->
+        {:error, [type: {"no type field found", [validation: :polyjuice_cast]}]}
 
-  #     {:unknown, type_value} ->
-  #       {:error, [type: {"unknown type #{inspect(type_value)}", [validation: :polyjuice_cast]}]}
+      {:unknown, type_value} ->
+        {:error, [type: {"unknown type #{inspect(type_value)}", [validation: :polyjuice_cast]}]}
 
-  #     {type, module} ->
-  #       data_with_type = ensure_type_field(data, type)
-  #       changeset = module.changeset(struct(module), data_with_type)
+      {type, module} ->
+        data_with_type = ensure_type_field(data, type)
+        changeset = module.changeset(struct(module), data_with_type)
 
-  #       if changeset.valid? do
-  #         {:ok, Ecto.Changeset.apply_changes(changeset)}
-  #       else
-  #         {:error, changeset.errors}
-  #       end
-  #   end
-  # end
+        if changeset.valid? do
+          {:ok, Ecto.Changeset.apply_changes(changeset)}
+        else
+          {:error, changeset.errors}
+        end
+    end
+  end
 
   def cast(_data, _params),
     do:
       {:error,
        [
          type:
-           {"invalid data, use Polyjuice.cast_embed/2",
+           {"invalid data format",
             [
               validation: :polyjuice_cast
             ]}
@@ -161,7 +160,16 @@ defmodule Polyjuice do
     end
   end
 
-  defp ensure_type_field(data, type), do: Map.put(data, "type", to_string(type))
+  defp ensure_type_field(data, type) do
+    # Use atom key if the map has atom keys, string key if it has string keys
+    cond do
+      Map.has_key?(data, :type) -> Map.put(data, :type, to_string(type))
+      Map.has_key?(data, "type") -> Map.put(data, "type", to_string(type))
+      # Default: check if map has any atom keys
+      Enum.any?(Map.keys(data), &is_atom/1) -> Map.put(data, :type, to_string(type))
+      true -> Map.put(data, "type", to_string(type))
+    end
+  end
 
   @doc """
   Validates and casts a Polyjuice field in a changeset.
