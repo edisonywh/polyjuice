@@ -369,6 +369,301 @@ defmodule Polyjuice.Test do
     end
   end
 
+  describe "raw map support" do
+    test "accepts maps with string keys directly" do
+      map_event = %{
+        "type" => "activated",
+        "user_id" => 456,
+        "activated_at" => DateTime.utc_now(),
+        "activation_code" => "STRING-456"
+      }
+
+      activity = %Activity{
+        title: "String Keys Test",
+        user_id: 456,
+        event: map_event
+      }
+
+      {:ok, saved} = Repo.insert(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      assert %Activated{} = loaded.event
+      assert loaded.event.user_id == 456
+      assert loaded.event.activation_code == "STRING-456"
+      assert loaded.event.type == "activated"
+    end
+
+    test "accepts maps with atom keys directly" do
+      map_event = %{
+        type: :activated,
+        user_id: 789,
+        activated_at: DateTime.utc_now(),
+        activation_code: "ATOM-789"
+      }
+
+      activity = %Activity{
+        title: "Atom Keys Test",
+        user_id: 789,
+        event: map_event
+      }
+
+      {:ok, saved} = Repo.insert(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      assert %Activated{} = loaded.event
+      assert loaded.event.user_id == 789
+      assert loaded.event.activation_code == "ATOM-789"
+    end
+
+    test "works with changeset validation" do
+      attrs = %{
+        "title" => "Factory Test",
+        "user_id" => 321,
+        "event" => %{
+          "type" => "cancelled",
+          "user_id" => 321,
+          "cancelled_at" => DateTime.utc_now(),
+          "reason" => "user_request"
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, attrs)
+      assert changeset.valid?
+      {:ok, activity} = Repo.insert(changeset)
+      assert %Cancelled{} = activity.event
+      assert activity.event.reason == "user_request"
+    end
+
+    test "handles mixed struct and map usage" do
+      # First activity with struct
+      struct_activity = %Activity{
+        title: "Struct Event",
+        user_id: 111,
+        event: %Activated{
+          type: "activated",
+          user_id: 111,
+          activated_at: DateTime.utc_now(),
+          activation_code: "STRUCT-111"
+        }
+      }
+
+      # Second activity with map
+      map_activity = %Activity{
+        title: "Map Event",
+        user_id: 222,
+        event: %{
+          "type" => "activated",
+          "user_id" => 222,
+          "activated_at" => DateTime.utc_now(),
+          "activation_code" => "MAP-222"
+        }
+      }
+
+      {:ok, saved_struct} = Repo.insert(struct_activity)
+      {:ok, saved_map} = Repo.insert(map_activity)
+
+      loaded_struct = Repo.get!(Activity, saved_struct.id)
+      loaded_map = Repo.get!(Activity, saved_map.id)
+
+      assert %Activated{} = loaded_struct.event
+      assert loaded_struct.event.activation_code == "STRUCT-111"
+
+      assert %Activated{} = loaded_map.event
+      assert loaded_map.event.activation_code == "MAP-222"
+    end
+
+    test "rejects map with missing type field (via changeset)" do
+      invalid_attrs = %{
+        "title" => "Missing Type",
+        "user_id" => 999,
+        "event" => %{
+          "user_id" => 999,
+          "activated_at" => DateTime.utc_now()
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, invalid_attrs)
+      refute changeset.valid?
+      assert changeset.errors[:event] == {"no type field found", []}
+    end
+
+    test "rejects map with unknown type value (via changeset)" do
+      invalid_attrs = %{
+        "title" => "Unknown Type",
+        "user_id" => 888,
+        "event" => %{
+          "type" => "unknown_event_type",
+          "user_id" => 888,
+          "data" => "test"
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, invalid_attrs)
+      refute changeset.valid?
+      assert changeset.errors[:event] == {"unknown type \"unknown_event_type\"", []}
+    end
+
+    test "validates map data through embedded schema changeset" do
+      invalid_attrs = %{
+        "title" => "Invalid Data",
+        "user_id" => 1,
+        "event" => %{
+          "type" => "activated",
+          # Invalid - should be integer
+          "user_id" => "not_an_integer",
+          "activated_at" => DateTime.utc_now()
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, invalid_attrs)
+      refute changeset.valid?
+      assert changeset.errors[:event]
+    end
+
+    test "database round-trip preserves map-based data correctly" do
+      map_event = %{
+        "type" => "cancelled",
+        "user_id" => 555,
+        "cancelled_at" => DateTime.utc_now(),
+        "reason" => "payment_failed"
+      }
+
+      activity = %Activity{
+        title: "Round Trip Test",
+        user_id: 555,
+        event: map_event
+      }
+
+      {:ok, saved} = Repo.insert(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      # Should be converted to struct after load
+      assert %Cancelled{} = loaded.event
+      assert loaded.event.user_id == 555
+      assert loaded.event.reason == "payment_failed"
+      assert loaded.event.type == "cancelled"
+
+      # Should be able to update it
+      updated_changeset =
+        Activity.changeset(loaded, %{
+          title: "Updated Round Trip"
+        })
+
+      {:ok, updated} = Repo.update(updated_changeset)
+      reloaded = Repo.get!(Activity, updated.id)
+
+      # Event should still be intact
+      assert %Cancelled{} = reloaded.event
+      assert reloaded.event.user_id == 555
+      assert reloaded.event.reason == "payment_failed"
+      assert reloaded.title == "Updated Round Trip"
+    end
+
+    test "map with string type works with changeset" do
+      attrs = %{
+        "title" => "String Type Test",
+        "user_id" => 654,
+        "event" => %{
+          "type" => "activated",
+          "user_id" => 654,
+          "activated_at" => DateTime.utc_now(),
+          "activation_code" => "STRING-654"
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, attrs)
+      assert changeset.valid?
+
+      {:ok, activity} = Repo.insert(changeset)
+      assert %Activated{} = activity.event
+      assert activity.event.activation_code == "STRING-654"
+    end
+
+    test "map with atom type works with changeset" do
+      attrs = %{
+        title: "Atom Type Test",
+        user_id: 987,
+        event: %{
+          type: :cancelled,
+          user_id: 987,
+          cancelled_at: DateTime.utc_now(),
+          reason: "fraud_detected"
+        }
+      }
+
+      changeset = Activity.changeset(%Activity{}, attrs)
+      assert changeset.valid?
+
+      {:ok, activity} = Repo.insert(changeset)
+      assert %Cancelled{} = activity.event
+      assert activity.event.reason == "fraud_detected"
+    end
+  end
+
+  describe "direct insertion without changeset validation" do
+    test "direct struct insertion bypasses validation" do
+      # Direct insertion skips changeset validation
+      activity = %Activity{
+        title: "Direct Struct Insert",
+        user_id: 555,
+        event: %Activated{
+          type: "activated",
+          user_id: 555,
+          activated_at: DateTime.utc_now(),
+          activation_code: "DIRECT-555"
+        }
+      }
+
+      {:ok, saved} = Repo.insert(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      assert %Activated{} = loaded.event
+      assert loaded.event.user_id == 555
+      assert loaded.event.activation_code == "DIRECT-555"
+    end
+
+    test "direct map insertion bypasses validation" do
+      # Direct map insertion works but skips validation
+      activity = %Activity{
+        title: "Direct Map Insert",
+        user_id: 666,
+        event: %{
+          "type" => "cancelled",
+          "user_id" => 666,
+          "cancelled_at" => DateTime.utc_now(),
+          "reason" => "payment_failed"
+        }
+      }
+
+      {:ok, saved} = Repo.insert(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      # Map is stored and loaded as struct
+      assert %Cancelled{} = loaded.event
+      assert loaded.event.user_id == 666
+      assert loaded.event.reason == "payment_failed"
+    end
+
+    test "Repo.insert! also bypasses validation" do
+      activity = %Activity{
+        title: "Insert Bang",
+        user_id: 777,
+        event: %Activated{
+          type: "activated",
+          user_id: 777,
+          activated_at: DateTime.utc_now(),
+          activation_code: "BANG-777"
+        }
+      }
+
+      saved = Repo.insert!(activity)
+      loaded = Repo.get!(Activity, saved.id)
+
+      assert %Activated{} = loaded.event
+      assert loaded.event.activation_code == "BANG-777"
+    end
+  end
+
   describe "schema evolution and backward compatibility" do
     test "loads record with extra fields from database" do
       activated_activity = %Activity{
